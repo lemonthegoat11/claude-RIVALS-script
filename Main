@@ -1,0 +1,748 @@
+-- Universal FPS Cheat | RIVALS & Gun Games
+-- Lang: Luau | Target: Roblox (Windows) | Exec: Synapse X / KRNL / Wave / Fluxus
+-- Features: ESP · Chams · Aimbot (hold RMB) · Triggerbot
+
+local Players        = game:GetService("Players")
+local RunService     = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Camera         = workspace.CurrentCamera
+local LocalPlayer    = Players.LocalPlayer
+
+-- ============================================================
+--  CONFIG
+-- ============================================================
+local Cfg = {
+    ESP = {
+        Enabled      = false,
+        Boxes        = true,
+        Names        = true,
+        Distance     = true,
+        HealthBar    = true,
+        Tracers      = false,
+        MaxDist      = 1000,
+        BoxColor     = Color3.fromRGB(220, 50, 50),
+        NameColor    = Color3.fromRGB(230, 230, 230),
+        DistColor    = Color3.fromRGB(160, 160, 170),
+        TracerColor  = Color3.fromRGB(220, 80, 80),
+        TeamCheck    = true,
+    },
+    Chams = {
+        Enabled             = false,
+        FillColor           = Color3.fromRGB(200, 40, 40),
+        OutlineColor        = Color3.fromRGB(255, 255, 255),
+        FillTransparency    = 0.45,
+        OutlineTransparency = 0,
+        TeamCheck           = true,
+    },
+    Aimbot = {
+        Enabled   = false,
+        FOV       = 120,          -- screen-space radius in pixels
+        Smoothing = 0.14,         -- 0.0 = instant snap, 1.0 = no movement
+        Target    = "Head",       -- "Head" | "HumanoidRootPart"
+        ShowFOV   = true,
+        HoldKey   = Enum.UserInputType.MouseButton2,
+        TeamCheck = true,
+    },
+    Triggerbot = {
+        Enabled   = false,
+        Delay     = 0.05,         -- seconds between shots
+        TeamCheck = true,
+    },
+}
+
+-- ============================================================
+--  UTILITIES
+-- ============================================================
+local function getChar(p)   return p.Character end
+local function getHum(p)
+    local c = getChar(p)
+    return c and c:FindFirstChildOfClass("Humanoid")
+end
+local function getRoot(p)
+    local c = getChar(p)
+    return c and c:FindFirstChild("HumanoidRootPart")
+end
+local function isAlive(p)
+    local h = getHum(p)
+    return h and h.Health > 0
+end
+local function isEnemy(p)
+    if LocalPlayer.Team == nil then return true end
+    return p.Team ~= LocalPlayer.Team
+end
+local function w2s(pos)
+    local sp, on = Camera:WorldToViewportPoint(pos)
+    return Vector2.new(sp.X, sp.Y), on, sp.Z
+end
+local function dist3(pos)
+    local r = getRoot(LocalPlayer)
+    return r and (pos - r.Position).Magnitude or math.huge
+end
+
+-- ============================================================
+--  DRAWING POOL — ESP
+-- ============================================================
+local ESPPool = {}
+
+local function mkDraw(type, props)
+    local o = Drawing.new(type)
+    for k,v in pairs(props) do o[k]=v end
+    return o
+end
+
+local function getESP(player)
+    if ESPPool[player] then return ESPPool[player] end
+    local e = {
+        Box   = mkDraw("Square", { Visible=false, Thickness=1.5, Color=Cfg.ESP.BoxColor,    Filled=false }),
+        Name  = mkDraw("Text",   { Visible=false, Size=13,       Color=Cfg.ESP.NameColor,   Outline=true, Center=true, Font=2 }),
+        Dist  = mkDraw("Text",   { Visible=false, Size=11,       Color=Cfg.ESP.DistColor,   Outline=true, Center=true, Font=2 }),
+        HPBG  = mkDraw("Square", { Visible=false, Thickness=1,   Color=Color3.fromRGB(0,0,0), Filled=true }),
+        HPBar = mkDraw("Square", { Visible=false, Thickness=1,   Color=Color3.fromRGB(0,220,80), Filled=true }),
+        Trace = mkDraw("Line",   { Visible=false, Thickness=1,   Color=Cfg.ESP.TracerColor }),
+    }
+    ESPPool[player] = e
+    return e
+end
+
+local function killESP(player)
+    local e = ESPPool[player]
+    if not e then return end
+    for _,o in pairs(e) do o:Remove() end
+    ESPPool[player] = nil
+end
+
+-- ============================================================
+--  CHAMS — Highlight instances
+-- ============================================================
+local ChamPool = {}
+
+local function applyHl(player)
+    local char = getChar(player)
+    if not char or ChamPool[player] then return end
+    local hl = Instance.new("Highlight")
+    hl.FillColor           = Cfg.Chams.FillColor
+    hl.OutlineColor        = Cfg.Chams.OutlineColor
+    hl.FillTransparency    = Cfg.Chams.FillTransparency
+    hl.OutlineTransparency = Cfg.Chams.OutlineTransparency
+    hl.DepthMode           = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.Parent              = char
+    ChamPool[player]       = hl
+end
+
+local function killHl(player)
+    local hl = ChamPool[player]
+    if hl then hl:Destroy() end
+    ChamPool[player] = nil
+end
+
+-- ============================================================
+--  FRAME UPDATES
+-- ============================================================
+local function updateESP()
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p == LocalPlayer then continue end
+        local e    = getESP(p)
+        local char = getChar(p)
+        local hum  = getHum(p)
+        local root = getRoot(p)
+
+        if not Cfg.ESP.Enabled or not char or not hum or not root
+            or hum.Health <= 0
+            or (Cfg.ESP.TeamCheck and not isEnemy(p)) then
+            for _,o in pairs(e) do o.Visible = false end
+            continue
+        end
+
+        local head = char:FindFirstChild("Head")
+        if not head then
+            for _,o in pairs(e) do o.Visible = false end
+            continue
+        end
+
+        local topSP, onScreen = w2s(head.Position + Vector3.new(0, head.Size.Y/2 + 0.1, 0))
+        local botSP, _,  depth = w2s(root.Position - Vector3.new(0, 3, 0))
+        if not onScreen or depth <= 0 then
+            for _,o in pairs(e) do o.Visible = false end
+            continue
+        end
+
+        local d = dist3(root.Position)
+        if d > Cfg.ESP.MaxDist then
+            for _,o in pairs(e) do o.Visible = false end
+            continue
+        end
+
+        local h = math.abs(botSP.Y - topSP.Y)
+        local w = h * 0.5
+        local x, y = topSP.X - w/2, topSP.Y
+
+        -- box
+        e.Box.Visible   = Cfg.ESP.Boxes
+        e.Box.Position  = Vector2.new(x, y)
+        e.Box.Size      = Vector2.new(w, h)
+        e.Box.Color     = Cfg.ESP.BoxColor
+
+        -- name
+        e.Name.Visible  = Cfg.ESP.Names
+        e.Name.Text     = p.Name
+        e.Name.Position = Vector2.new(topSP.X, y - 16)
+
+        -- distance
+        e.Dist.Visible  = Cfg.ESP.Distance
+        e.Dist.Text     = string.format("[%d]", math.floor(d))
+        e.Dist.Position = Vector2.new(topSP.X, y + h + 2)
+
+        -- health bar (left strip)
+        local pct = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
+        local bx = x - 5
+        e.HPBG.Visible   = Cfg.ESP.HealthBar
+        e.HPBG.Position  = Vector2.new(bx - 1, y - 1)
+        e.HPBG.Size      = Vector2.new(3, h + 2)
+
+        e.HPBar.Visible  = Cfg.ESP.HealthBar
+        e.HPBar.Position = Vector2.new(bx, y + h * (1 - pct))
+        e.HPBar.Size     = Vector2.new(1.5, h * pct)
+        e.HPBar.Color    = Color3.fromRGB(255*(1-pct), 220*pct, 0)
+
+        -- tracer
+        local vp = Camera.ViewportSize
+        e.Trace.Visible  = Cfg.ESP.Tracers
+        e.Trace.From     = Vector2.new(vp.X/2, vp.Y)
+        e.Trace.To       = botSP
+        e.Trace.Color    = Cfg.ESP.TracerColor
+    end
+
+    for p in pairs(ESPPool) do
+        if not p.Parent then killESP(p) end
+    end
+end
+
+local function updateChams()
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p == LocalPlayer then continue end
+        if Cfg.Chams.Enabled and isAlive(p)
+            and (not Cfg.Chams.TeamCheck or isEnemy(p)) then
+            applyHl(p)
+            local hl = ChamPool[p]
+            if hl then
+                hl.FillColor           = Cfg.Chams.FillColor
+                hl.OutlineColor        = Cfg.Chams.OutlineColor
+                hl.FillTransparency    = Cfg.Chams.FillTransparency
+                hl.OutlineTransparency = Cfg.Chams.OutlineTransparency
+            end
+        else
+            killHl(p)
+        end
+    end
+    for p in pairs(ChamPool) do
+        if not p.Parent then killHl(p) end
+    end
+end
+
+-- ============================================================
+--  AIMBOT
+-- ============================================================
+local FOVCircle = mkDraw("Circle", {
+    Visible=false, Thickness=1,
+    Color=Color3.fromRGB(255,255,255),
+    Filled=false, NumSides=64,
+})
+
+local aimbotHeld = false
+UserInputService.InputBegan:Connect(function(i)
+    if i.UserInputType == Cfg.Aimbot.HoldKey then aimbotHeld = true end
+end)
+UserInputService.InputEnded:Connect(function(i)
+    if i.UserInputType == Cfg.Aimbot.HoldKey then aimbotHeld = false end
+end)
+
+local function bestTarget()
+    local vp  = Camera.ViewportSize
+    local ctr = Vector2.new(vp.X/2, vp.Y/2)
+    local bestD, bestPos = Cfg.Aimbot.FOV, nil
+
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p == LocalPlayer then continue end
+        if not isAlive(p) then continue end
+        if Cfg.Aimbot.TeamCheck and not isEnemy(p) then continue end
+
+        local char = getChar(p)
+        if not char then continue end
+
+        local part = char:FindFirstChild(Cfg.Aimbot.Target)
+               or char:FindFirstChild("HumanoidRootPart")
+        if not part then continue end
+
+        local sp, on, depth = w2s(part.Position)
+        if not on or depth <= 0 then continue end
+
+        local d = (sp - ctr).Magnitude
+        if d < bestD then
+            bestD   = d
+            bestPos = part.Position
+        end
+    end
+    return bestPos
+end
+
+local function updateAimbot()
+    local vp  = Camera.ViewportSize
+    local ctr = Vector2.new(vp.X/2, vp.Y/2)
+
+    FOVCircle.Visible  = Cfg.Aimbot.ShowFOV and Cfg.Aimbot.Enabled
+    FOVCircle.Position = ctr
+    FOVCircle.Radius   = Cfg.Aimbot.FOV
+
+    if not Cfg.Aimbot.Enabled or not aimbotHeld then return end
+
+    local pos = bestTarget()
+    if not pos then return end
+
+    local cur = Camera.CFrame
+    local tgt = CFrame.lookAt(cur.Position, pos)
+    Camera.CFrame = cur:Lerp(tgt, Cfg.Aimbot.Smoothing)
+end
+
+-- ============================================================
+--  TRIGGERBOT
+-- ============================================================
+local tbCooldown = false
+
+local function updateTriggerbot()
+    if not Cfg.Triggerbot.Enabled or tbCooldown then return end
+
+    local lc = getChar(LocalPlayer)
+    if not lc then return end
+
+    local rp = RaycastParams.new()
+    rp.FilterDescendantsInstances = { lc }
+    rp.FilterType = Enum.RaycastFilterType.Exclude
+
+    local hit = workspace:Raycast(Camera.CFrame.Position, Camera.CFrame.LookVector * 1500, rp)
+    if not hit then return end
+
+    local model = hit.Instance:FindFirstAncestorOfClass("Model")
+    if not model then return end
+
+    local target = Players:GetPlayerFromCharacter(model)
+    if not target or target == LocalPlayer then return end
+    if Cfg.Triggerbot.TeamCheck and not isEnemy(target) then return end
+    if not isAlive(target) then return end
+
+    tbCooldown = true
+    mouse1click()
+    task.delay(Cfg.Triggerbot.Delay, function() tbCooldown = false end)
+end
+
+-- ============================================================
+--  RENDER LOOP
+-- ============================================================
+RunService.RenderStepped:Connect(function()
+    updateESP()
+    updateChams()
+    updateAimbot()
+    updateTriggerbot()
+end)
+
+Players.PlayerRemoving:Connect(function(p) killESP(p); killHl(p) end)
+Players.PlayerAdded:Connect(function(p)
+    p.CharacterAdded:Connect(function() killHl(p) end)
+end)
+for _, p in ipairs(Players:GetPlayers()) do
+    p.CharacterAdded:Connect(function() killHl(p) end)
+end
+
+-- ============================================================
+--  GUI
+-- ============================================================
+local SG = Instance.new("ScreenGui")
+SG.Name          = "UniversalMenu"
+SG.ResetOnSpawn  = false
+SG.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+pcall(function() SG.Parent = game:GetService("CoreGui") end)
+if not SG.Parent then SG.Parent = LocalPlayer:WaitForChild("PlayerGui") end
+
+-- Palette
+local C = {
+    BG0 = Color3.fromRGB(12,12,18),
+    BG1 = Color3.fromRGB(20,20,28),
+    BG2 = Color3.fromRGB(28,28,38),
+    ACC = Color3.fromRGB(205,55,55),
+    TW  = Color3.fromRGB(230,230,232),
+    TD  = Color3.fromRGB(110,110,125),
+    TON = Color3.fromRGB(55,195,95),
+    TOF = Color3.fromRGB(65,65,80),
+}
+
+local function corner(parent, r)
+    local u = Instance.new("UICorner", parent)
+    u.CornerRadius = UDim.new(0, r or 6)
+    return u
+end
+
+-- Main window
+local Win = Instance.new("Frame")
+Win.Size             = UDim2.new(0, 340, 0, 430)
+Win.Position         = UDim2.new(0.5,-170, 0.5,-215)
+Win.BackgroundColor3 = C.BG0
+Win.BorderSizePixel  = 0
+Win.Parent           = SG
+corner(Win, 8)
+
+-- Title bar
+local TB = Instance.new("Frame")
+TB.Size             = UDim2.new(1,0, 0,40)
+TB.BackgroundColor3 = C.BG1
+TB.BorderSizePixel  = 0
+TB.Parent           = Win
+corner(TB, 8)
+
+-- fix bottom corners of TB
+local TBFix = Instance.new("Frame")
+TBFix.Size             = UDim2.new(1,0, 0,8)
+TBFix.Position         = UDim2.new(0,0, 1,-8)
+TBFix.BackgroundColor3 = C.BG1
+TBFix.BorderSizePixel  = 0
+TBFix.Parent           = TB
+
+-- accent bar
+local Ac = Instance.new("Frame")
+Ac.Size             = UDim2.new(0,3, 0,22)
+Ac.Position         = UDim2.new(0,10, 0,9)
+Ac.BackgroundColor3 = C.ACC
+Ac.BorderSizePixel  = 0
+Ac.Parent           = TB
+corner(Ac, 2)
+
+local function lbl(parent, txt, sz, col, xal, pos, size, bold)
+    local l = Instance.new("TextLabel")
+    l.BackgroundTransparency = 1
+    l.Text = txt
+    l.TextColor3 = col
+    l.Font = bold and Enum.Font.GothamBold or Enum.Font.Gotham
+    l.TextSize = sz
+    l.TextXAlignment = xal or Enum.TextXAlignment.Left
+    l.Position = pos or UDim2.new(0,0,0,0)
+    l.Size = size or UDim2.new(1,0,1,0)
+    l.Parent = parent
+    return l
+end
+
+lbl(TB, "UNIVERSAL  ·  Gun Games", 13, C.TW, Enum.TextXAlignment.Left,
+    UDim2.new(0,20,0,6), UDim2.new(1,-60,0,18), true)
+lbl(TB, "ESP  ·  Chams  ·  Aimbot  ·  Triggerbot", 10, C.TD, Enum.TextXAlignment.Left,
+    UDim2.new(0,20,0,23), UDim2.new(1,-60,0,14), false)
+
+-- close
+local X = Instance.new("TextButton")
+X.Size             = UDim2.new(0,22,0,22)
+X.Position         = UDim2.new(1,-30,0,9)
+X.BackgroundColor3 = Color3.fromRGB(170,35,35)
+X.Text             = "×"
+X.TextColor3       = Color3.fromRGB(255,255,255)
+X.Font             = Enum.Font.GothamBold
+X.TextSize         = 15
+X.BorderSizePixel  = 0
+X.Parent           = TB
+corner(X, 4)
+X.MouseButton1Click:Connect(function()
+    SG:Destroy()
+    for p in pairs(ESPPool) do killESP(p) end
+    FOVCircle:Remove()
+end)
+
+-- drag
+local drag, ds, dp = false, nil, nil
+TB.InputBegan:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1 then
+        drag=true; ds=i.Position; dp=Win.Position
+    end
+end)
+TB.InputEnded:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1 then drag=false end
+end)
+UserInputService.InputChanged:Connect(function(i)
+    if drag and i.UserInputType == Enum.UserInputType.MouseMovement then
+        local d = i.Position - ds
+        Win.Position = UDim2.new(dp.X.Scale, dp.X.Offset+d.X, dp.Y.Scale, dp.Y.Offset+d.Y)
+    end
+end)
+
+-- Tab bar
+local TabRow = Instance.new("Frame")
+TabRow.Size             = UDim2.new(1,-16,0,28)
+TabRow.Position         = UDim2.new(0,8,0,46)
+TabRow.BackgroundColor3 = C.BG1
+TabRow.BorderSizePixel  = 0
+TabRow.Parent           = Win
+corner(TabRow, 6)
+local TRL = Instance.new("UIListLayout")
+TRL.FillDirection = Enum.FillDirection.Horizontal
+TRL.Padding       = UDim.new(0,4)
+TRL.Parent        = TabRow
+Instance.new("UIPadding", TabRow).PaddingLeft = UDim.new(0,4)
+
+-- Content
+local CA = Instance.new("Frame")
+CA.Size                = UDim2.new(1,-16, 1,-82)
+CA.Position            = UDim2.new(0,8,0,80)
+CA.BackgroundTransparency = 1
+CA.Parent              = Win
+
+local allTabs = {}
+
+local function mkTab(name)
+    local btn = Instance.new("TextButton")
+    btn.Size             = UDim2.new(0,76,1,-6)
+    btn.BackgroundColor3 = C.TOF
+    btn.Text             = name
+    btn.TextColor3       = C.TD
+    btn.Font             = Enum.Font.GothamBold
+    btn.TextSize         = 11
+    btn.BorderSizePixel  = 0
+    btn.Parent           = TabRow
+    btn.LayoutOrder      = #allTabs + 1
+    corner(btn, 5)
+
+    local scroll = Instance.new("ScrollingFrame")
+    scroll.Size                  = UDim2.new(1,0,1,0)
+    scroll.BackgroundTransparency = 1
+    scroll.BorderSizePixel        = 0
+    scroll.ScrollBarThickness     = 3
+    scroll.ScrollBarImageColor3   = C.ACC
+    scroll.AutomaticCanvasSize    = Enum.AutomaticSize.Y
+    scroll.CanvasSize             = UDim2.new(0,0,0,0)
+    scroll.Visible                = false
+    scroll.Parent                 = CA
+
+    local ll = Instance.new("UIListLayout")
+    ll.Padding     = UDim.new(0,5)
+    ll.SortOrder   = Enum.SortOrder.LayoutOrder
+    ll.Parent      = scroll
+    Instance.new("UIPadding", scroll).PaddingTop = UDim.new(0,4)
+
+    local t = { btn=btn, scroll=scroll }
+    table.insert(allTabs, t)
+
+    btn.MouseButton1Click:Connect(function()
+        for _,tt in ipairs(allTabs) do
+            tt.scroll.Visible     = false
+            tt.btn.BackgroundColor3 = C.TOF
+            tt.btn.TextColor3       = C.TD
+        end
+        scroll.Visible      = true
+        btn.BackgroundColor3 = C.ACC
+        btn.TextColor3       = C.TW
+    end)
+    return t
+end
+
+local function sec(tab, text)
+    local f = Instance.new("Frame")
+    f.Size             = UDim2.new(1,0,0,22)
+    f.BackgroundColor3 = C.BG2
+    f.BorderSizePixel  = 0
+    f.Parent           = tab.scroll
+    corner(f, 5)
+
+    local bar = Instance.new("Frame")
+    bar.Size             = UDim2.new(0,3,0.6,0)
+    bar.Position         = UDim2.new(0,8,0.2,0)
+    bar.BackgroundColor3 = C.ACC
+    bar.BorderSizePixel  = 0
+    bar.Parent           = f
+    corner(bar, 2)
+
+    lbl(f, text, 11, C.ACC, Enum.TextXAlignment.Left,
+        UDim2.new(0,18,0,0), UDim2.new(1,-22,1,0), true)
+end
+
+local function toggle(tab, label, desc, getter, setter)
+    local row = Instance.new("Frame")
+    row.Size             = UDim2.new(1,0,0, desc and 46 or 34)
+    row.BackgroundColor3 = C.BG2
+    row.BorderSizePixel  = 0
+    row.Parent           = tab.scroll
+    corner(row, 6)
+
+    lbl(row, label, 12, C.TW, Enum.TextXAlignment.Left,
+        UDim2.new(0,12,0,6), UDim2.new(1,-60,0,18), true)
+    if desc then
+        lbl(row, desc, 10, C.TD, Enum.TextXAlignment.Left,
+            UDim2.new(0,12,0,23), UDim2.new(1,-60,0,14), false)
+    end
+
+    local pill = Instance.new("Frame")
+    pill.Size             = UDim2.new(0,36,0,18)
+    pill.Position         = UDim2.new(1,-48,0.5,-9)
+    pill.BackgroundColor3 = getter() and C.TON or C.TOF
+    pill.BorderSizePixel  = 0
+    pill.Parent           = row
+    corner(pill, 9)
+
+    local knob = Instance.new("Frame")
+    knob.Size             = UDim2.new(0,14,0,14)
+    knob.Position         = getter()
+        and UDim2.new(1,-16,0.5,-7)
+        or  UDim2.new(0,  2,0.5,-7)
+    knob.BackgroundColor3 = Color3.fromRGB(255,255,255)
+    knob.BorderSizePixel  = 0
+    knob.Parent           = pill
+    corner(knob, 7)
+
+    local function refresh()
+        local v = getter()
+        pill.BackgroundColor3 = v and C.TON or C.TOF
+        knob.Position = v and UDim2.new(1,-16,0.5,-7) or UDim2.new(0,2,0.5,-7)
+    end
+
+    local btn = Instance.new("TextButton")
+    btn.Size               = UDim2.new(1,0,1,0)
+    btn.BackgroundTransparency = 1
+    btn.Text               = ""
+    btn.Parent             = row
+    btn.MouseButton1Click:Connect(function()
+        setter(not getter())
+        refresh()
+    end)
+end
+
+local function slider(tab, label, mn, mx, getter, setter)
+    local row = Instance.new("Frame")
+    row.Size             = UDim2.new(1,0,0,54)
+    row.BackgroundColor3 = C.BG2
+    row.BorderSizePixel  = 0
+    row.Parent           = tab.scroll
+    corner(row, 6)
+
+    lbl(row, label, 11, C.TW, Enum.TextXAlignment.Left,
+        UDim2.new(0,12,0,7), UDim2.new(0.7,0,0,18), true)
+
+    local vl = lbl(row, tostring(getter()), 11, C.ACC, Enum.TextXAlignment.Right,
+        UDim2.new(0.7,0,0,7), UDim2.new(0.3,-12,0,18), true)
+
+    local track = Instance.new("Frame")
+    track.Size             = UDim2.new(1,-24,0,4)
+    track.Position         = UDim2.new(0,12,0,36)
+    track.BackgroundColor3 = C.BG1
+    track.BorderSizePixel  = 0
+    track.Parent           = row
+    corner(track, 2)
+
+    local pct  = (getter()-mn)/(mx-mn)
+
+    local fill = Instance.new("Frame")
+    fill.Size             = UDim2.new(pct,0,1,0)
+    fill.BackgroundColor3 = C.ACC
+    fill.BorderSizePixel  = 0
+    fill.Parent           = track
+    corner(fill, 2)
+
+    local handle = Instance.new("Frame")
+    handle.Size             = UDim2.new(0,12,0,12)
+    handle.Position         = UDim2.new(pct,-6,0.5,-6)
+    handle.BackgroundColor3 = Color3.fromRGB(255,255,255)
+    handle.BorderSizePixel  = 0
+    handle.Parent           = track
+    corner(handle, 6)
+
+    local sliding = false
+    local function upd(pos)
+        local tp = track.AbsolutePosition
+        local ts = track.AbsoluteSize
+        local r  = math.clamp((pos.X-tp.X)/ts.X, 0, 1)
+        local v  = math.floor(mn + (mx-mn)*r)
+        setter(v)
+        fill.Size     = UDim2.new(r,0,1,0)
+        handle.Position = UDim2.new(r,-6,0.5,-6)
+        vl.Text       = tostring(v)
+    end
+
+    track.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 then
+            sliding = true; upd(i.Position)
+        end
+    end)
+    track.InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 then sliding=false end
+    end)
+    UserInputService.InputChanged:Connect(function(i)
+        if sliding and i.UserInputType == Enum.UserInputType.MouseMovement then upd(i.Position) end
+    end)
+end
+
+-- ============================================================
+--  POPULATE TABS
+-- ============================================================
+local tVis  = mkTab("Visuals")
+local tComb = mkTab("Combat")
+local tMisc = mkTab("Misc")
+
+-- Visuals
+sec(tVis, "ESP")
+toggle(tVis, "ESP Master",    "Enemies through walls",
+    function() return Cfg.ESP.Enabled   end, function(v) Cfg.ESP.Enabled   = v end)
+toggle(tVis, "Boxes",         "2D bounding box",
+    function() return Cfg.ESP.Boxes     end, function(v) Cfg.ESP.Boxes     = v end)
+toggle(tVis, "Names",         "Player names",
+    function() return Cfg.ESP.Names     end, function(v) Cfg.ESP.Names     = v end)
+toggle(tVis, "Distance",      "Stud distance tag",
+    function() return Cfg.ESP.Distance  end, function(v) Cfg.ESP.Distance  = v end)
+toggle(tVis, "Health Bars",   "Left-side HP strip",
+    function() return Cfg.ESP.HealthBar end, function(v) Cfg.ESP.HealthBar = v end)
+toggle(tVis, "Tracers",       "Line from screen bottom",
+    function() return Cfg.ESP.Tracers   end, function(v) Cfg.ESP.Tracers   = v end)
+slider(tVis, "Max Distance", 100, 2000,
+    function() return Cfg.ESP.MaxDist   end, function(v) Cfg.ESP.MaxDist   = v end)
+
+sec(tVis, "Chams")
+toggle(tVis, "Chams Master", "AlwaysOnTop highlight",
+    function() return Cfg.Chams.Enabled end,
+    function(v)
+        Cfg.Chams.Enabled = v
+        if not v then
+            for _, p in ipairs(Players:GetPlayers()) do killHl(p) end
+        end
+    end)
+
+-- Combat
+sec(tComb, "Aimbot")
+toggle(tComb, "Aimbot Master",  "Hold RMB to activate",
+    function() return Cfg.Aimbot.Enabled  end, function(v) Cfg.Aimbot.Enabled  = v end)
+toggle(tComb, "Show FOV Circle","White ring = search radius",
+    function() return Cfg.Aimbot.ShowFOV  end,
+    function(v) Cfg.Aimbot.ShowFOV = v; if not v then FOVCircle.Visible=false end end)
+toggle(tComb, "Team Check",     "Skip teammates",
+    function() return Cfg.Aimbot.TeamCheck end, function(v) Cfg.Aimbot.TeamCheck = v end)
+slider(tComb, "FOV Radius (px)", 20, 500,
+    function() return Cfg.Aimbot.FOV       end, function(v) Cfg.Aimbot.FOV       = v end)
+slider(tComb, "Smoothing ×100",  1, 100,
+    function() return math.floor(Cfg.Aimbot.Smoothing*100) end,
+    function(v) Cfg.Aimbot.Smoothing = v/100 end)
+
+sec(tComb, "Triggerbot")
+toggle(tComb, "Triggerbot",        "Auto-fire on crosshair hit",
+    function() return Cfg.Triggerbot.Enabled   end, function(v) Cfg.Triggerbot.Enabled   = v end)
+toggle(tComb, "Team Check (Trig)", "Skip teammates",
+    function() return Cfg.Triggerbot.TeamCheck end, function(v) Cfg.Triggerbot.TeamCheck = v end)
+slider(tComb, "Fire Delay (ms)",  0, 300,
+    function() return math.floor(Cfg.Triggerbot.Delay*1000) end,
+    function(v) Cfg.Triggerbot.Delay = v/1000 end)
+
+-- Misc
+sec(tMisc, "Global")
+toggle(tMisc, "Global Team Check", "Sync all team checks at once",
+    function() return Cfg.ESP.TeamCheck end,
+    function(v)
+        Cfg.ESP.TeamCheck        = v
+        Cfg.Chams.TeamCheck      = v
+        Cfg.Aimbot.TeamCheck     = v
+        Cfg.Triggerbot.TeamCheck = v
+    end)
+
+-- Activate first tab
+allTabs[1].scroll.Visible      = true
+allTabs[1].btn.BackgroundColor3 = C.ACC
+allTabs[1].btn.TextColor3       = C.TW
+
+print("[UNIVERSAL] Loaded — RIVALS & Gun Games")
