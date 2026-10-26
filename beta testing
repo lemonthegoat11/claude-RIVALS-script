@@ -2,7 +2,7 @@
 -- Luau · Synapse X / KRNL / Wave / Fluxus
 -- ESP · Chams · Aimbot (RMB) · Triggerbot
 
--------------------------------------------------- SERVICES
+--------------------------------------------------  SERVICES
 local Players          = game:GetService("Players")
 local RunService       = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -11,7 +11,7 @@ local Camera           = workspace.CurrentCamera
 local LP               = Players.LocalPlayer
 local TI               = TweenInfo.new
 
--------------------------------------------------- CONFIG
+--------------------------------------------------  CONFIG
 local Cfg = {
     ESP = {
         Enabled=false, Boxes=true, Names=true, Distance=true,
@@ -39,7 +39,7 @@ local Cfg = {
     Triggerbot={ Enabled=false, Delay=0.05, TeamCheck=true },
 }
 
--------------------------------------------------- UTIL
+--------------------------------------------------  UTIL
 local function getChar(p)  return p.Character end
 local function getHum(p)   local c=getChar(p); return c and c:FindFirstChildOfClass("Humanoid") end
 local function getRoot(p)  local c=getChar(p); return c and c:FindFirstChild("HumanoidRootPart") end
@@ -48,7 +48,7 @@ local function isEnemy(p)  if LP.Team==nil then return true end; return p.Team~=
 local function w2s(pos)    local sp,on=Camera:WorldToViewportPoint(pos); return Vector2.new(sp.X,sp.Y),on,sp.Z end
 local function dist3(pos)  local r=getRoot(LP); return r and (pos-r.Position).Magnitude or math.huge end
 
--------------------------------------------------- DRAWING POOL
+--------------------------------------------------  DRAWING POOL
 local ESPPool={}
 local function mkDraw(t,props) local o=Drawing.new(t); for k,v in pairs(props) do o[k]=v end; return o end
 local function getESP(player)
@@ -68,7 +68,7 @@ local function killESP(p)
     for _,o in pairs(e) do o:Remove() end; ESPPool[p]=nil
 end
 
--------------------------------------------------- CHAMS
+--------------------------------------------------  CHAMS
 local ChamPool={}
 local function applyHl(p)
     local char=getChar(p); if not char or ChamPool[p] then return end
@@ -79,7 +79,7 @@ local function applyHl(p)
 end
 local function killHl(p) local hl=ChamPool[p]; if hl then hl:Destroy() end; ChamPool[p]=nil end
 
--------------------------------------------------- FRAME UPDATES
+--------------------------------------------------  FRAME UPDATES
 local function updateESP()
     for _,p in ipairs(Players:GetPlayers()) do
         if p==LP then continue end
@@ -123,7 +123,7 @@ local function updateChams()
     for p in pairs(ChamPool) do if not p.Parent then killHl(p) end end
 end
 
--------------------------------------------------- AIMBOT
+--------------------------------------------------  AIMBOT
 local FOVCircle=mkDraw("Circle",{Visible=false,Thickness=1,Color=Color3.fromRGB(0,210,255),Filled=false,NumSides=64})
 local aimbotHeld=false
 UserInputService.InputBegan:Connect(function(i) if i.UserInputType==Cfg.Aimbot.HoldKey then aimbotHeld=true  end end)
@@ -151,7 +151,7 @@ local function updateAimbot()
     Camera.CFrame=Camera.CFrame:Lerp(CFrame.lookAt(Camera.CFrame.Position,pos),Cfg.Aimbot.Smoothing)
 end
 
--------------------------------------------------- TRIGGERBOT
+--------------------------------------------------  TRIGGERBOT
 local tbCooldown=false
 local function updateTriggerbot()
     if not Cfg.Triggerbot.Enabled or tbCooldown then return end
@@ -165,14 +165,14 @@ local function updateTriggerbot()
     tbCooldown=true; mouse1click(); task.delay(Cfg.Triggerbot.Delay,function() tbCooldown=false end)
 end
 
--------------------------------------------------- RENDER LOOP
+--------------------------------------------------  RENDER LOOP
 RunService.RenderStepped:Connect(function() updateESP(); updateChams(); updateAimbot(); updateTriggerbot() end)
 Players.PlayerRemoving:Connect(function(p) killESP(p); killHl(p) end)
 Players.PlayerAdded:Connect(function(p) p.CharacterAdded:Connect(function() killHl(p) end) end)
 for _,p in ipairs(Players:GetPlayers()) do p.CharacterAdded:Connect(function() killHl(p) end) end
 
 -- ================================================================
--- GUI v2  ·  CYBER HUD
+--  GUI v2  ·  CYBER HUD
 -- ================================================================
 local SG=Instance.new("ScreenGui")
 SG.Name="UniversalHUD"; SG.ResetOnSpawn=false; SG.ZIndexBehavior=Enum.ZIndexBehavior.Sibling
@@ -264,7 +264,7 @@ do
     grad(ac,C.ACC,C.ACC2,180)
 end
 
-lbl(Hdr,"UNIVERSAL",    15,C.TW, Enum.TextXAlignment.Left,UDim2.new(0,36,0,8), UDim2.new(0,165,0,20),true)
+lbl(Hdr,"UNIVERSAL",   15,C.TW, Enum.TextXAlignment.Left,UDim2.new(0,36,0,8), UDim2.new(0,165,0,20),true)
 lbl(Hdr,"RIVALS  ·  GUN GAMES",10,C.TD,Enum.TextXAlignment.Left,UDim2.new(0,36,0,28),UDim2.new(0,165,0,14),false)
 
 -- Header icon buttons  (visible Frame + invisible click area)
@@ -349,7 +349,7 @@ grad(tabInd,C.ACC2,C.ACC,0)
 local ContentBg=fr(Win,UDim2.new(1,0,1,-90),UDim2.new(0,0,0,90),C.BG0)
 
 -- ================================================================
--- COMPONENT BUILDERS
+--  COMPONENT BUILDERS
 -- ================================================================
 local allTabs={}
 
@@ -456,19 +456,19 @@ local function slider(tab,label,mn,mx,getter,setter)
 end
 
 -- ================================================================
--- POPULATE
+--  POPULATE
 -- ================================================================
 local tVis=mkTab("Visuals",1); local tComb=mkTab("Combat",2); local tMisc=mkTab("Misc",3)
 
 -- Visuals
 sec(tVis,"ESP")
-toggle(tVis,"ESP",         "Enemy outlines + wallhack",       function() return Cfg.ESP.Enabled    end,function(v) Cfg.ESP.Enabled=v    end)
-toggle(tVis,"Boxes",       "2D bounding boxes",               function() return Cfg.ESP.Boxes      end,function(v) Cfg.ESP.Boxes=v      end)
-toggle(tVis,"Names",       "Player name tags",                function() return Cfg.ESP.Names      end,function(v) Cfg.ESP.Names=v      end)
-toggle(tVis,"Distance",    "Stud counter",                    function() return Cfg.ESP.Distance   end,function(v) Cfg.ESP.Distance=v   end)
-toggle(tVis,"Health Bars", "HP strip on box edge",            function() return Cfg.ESP.HealthBar  end,function(v) Cfg.ESP.HealthBar=v  end)
-toggle(tVis,"Tracers",     "Lines from screen bottom",        function() return Cfg.ESP.Tracers    end,function(v) Cfg.ESP.Tracers=v    end)
-slider(tVis,"Max Distance",100,2000,                          function() return Cfg.ESP.MaxDist    end,function(v) Cfg.ESP.MaxDist=v    end)
+toggle(tVis,"ESP",         "Enemy outlines + wallhack",     function() return Cfg.ESP.Enabled   end,function(v) Cfg.ESP.Enabled=v   end)
+toggle(tVis,"Boxes",       "2D bounding boxes",              function() return Cfg.ESP.Boxes     end,function(v) Cfg.ESP.Boxes=v     end)
+toggle(tVis,"Names",       "Player name tags",               function() return Cfg.ESP.Names     end,function(v) Cfg.ESP.Names=v     end)
+toggle(tVis,"Distance",    "Stud counter",                   function() return Cfg.ESP.Distance  end,function(v) Cfg.ESP.Distance=v  end)
+toggle(tVis,"Health Bars", "HP strip on box edge",           function() return Cfg.ESP.HealthBar end,function(v) Cfg.ESP.HealthBar=v end)
+toggle(tVis,"Tracers",     "Lines from screen bottom",       function() return Cfg.ESP.Tracers   end,function(v) Cfg.ESP.Tracers=v   end)
+slider(tVis,"Max Distance",100,2000,                         function() return Cfg.ESP.MaxDist   end,function(v) Cfg.ESP.MaxDist=v   end)
 sec(tVis,"Chams")
 toggle(tVis,"Chams","AlwaysOnTop highlight",
     function() return Cfg.Chams.Enabled end,
@@ -476,14 +476,14 @@ toggle(tVis,"Chams","AlwaysOnTop highlight",
 
 -- Combat
 sec(tComb,"Aimbot")
-toggle(tComb,"Aimbot",       "Hold RMB to activate",          function() return Cfg.Aimbot.Enabled     end,function(v) Cfg.Aimbot.Enabled=v     end)
-toggle(tComb,"FOV Circle",   "Ring shows search radius",      function() return Cfg.Aimbot.ShowFOV     end,function(v) Cfg.Aimbot.ShowFOV=v; if not v then FOVCircle.Visible=false end end)
-toggle(tComb,"Team Check",   "Skip teammates",                function() return Cfg.Aimbot.TeamCheck   end,function(v) Cfg.Aimbot.TeamCheck=v   end)
-slider(tComb,"FOV Radius (px)",20,500,                        function() return Cfg.Aimbot.FOV         end,function(v) Cfg.Aimbot.FOV=v         end)
+toggle(tComb,"Aimbot",      "Hold RMB to activate",          function() return Cfg.Aimbot.Enabled    end,function(v) Cfg.Aimbot.Enabled=v    end)
+toggle(tComb,"FOV Circle",  "Ring shows search radius",      function() return Cfg.Aimbot.ShowFOV    end,function(v) Cfg.Aimbot.ShowFOV=v; if not v then FOVCircle.Visible=false end end)
+toggle(tComb,"Team Check",  "Skip teammates",                 function() return Cfg.Aimbot.TeamCheck  end,function(v) Cfg.Aimbot.TeamCheck=v  end)
+slider(tComb,"FOV Radius (px)",20,500,                        function() return Cfg.Aimbot.FOV        end,function(v) Cfg.Aimbot.FOV=v        end)
 slider(tComb,"Smoothing ×100",1,100,                          function() return math.floor(Cfg.Aimbot.Smoothing*100) end,function(v) Cfg.Aimbot.Smoothing=v/100 end)
 sec(tComb,"Triggerbot")
-toggle(tComb,"Triggerbot",   "Auto-fire on crosshair hit",    function() return Cfg.Triggerbot.Enabled     end,function(v) Cfg.Triggerbot.Enabled=v     end)
-toggle(tComb,"Team Check",   "Skip teammates",                function() return Cfg.Triggerbot.TeamCheck   end,function(v) Cfg.Triggerbot.TeamCheck=v   end)
+toggle(tComb,"Triggerbot",  "Auto-fire on crosshair hit",    function() return Cfg.Triggerbot.Enabled    end,function(v) Cfg.Triggerbot.Enabled=v    end)
+toggle(tComb,"Team Check",  "Skip teammates",                 function() return Cfg.Triggerbot.TeamCheck  end,function(v) Cfg.Triggerbot.TeamCheck=v  end)
 slider(tComb,"Fire Delay (ms)",0,300,                         function() return math.floor(Cfg.Triggerbot.Delay*1000) end,function(v) Cfg.Triggerbot.Delay=v/1000 end)
 
 -- Misc
